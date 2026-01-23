@@ -5,32 +5,107 @@ on:
     inputs:
       test_case:
         description: 'Test case ID (e.g., GF-D-001)'
-        required: true
+        required: false
         type: string
   pull_request:
     branches: [main, develop]
-    types: [closed]
+    types: [opened, closed]
   push:
     branches: [main, develop, 'release/**', 'hotfix/**']
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
-  gitflow:
+  detect:
     runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.detect.outputs.action }}
+      branch: ${{ steps.detect.outputs.branch }}
+      version: ${{ steps.detect.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: Run GitFlow
-        id: gitflow
-        uses: beyond-scale-group/bsg-claude-plugins/github-actions/gitflow@main
-        with:
-          main-branch: main
-          develop-branch: develop
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Check result
+      - name: Detect GitFlow action
+        id: detect
         run: |
-          echo "Action: ${{ steps.gitflow.outputs.action }}"
-          echo "Branch: ${{ steps.gitflow.outputs.branch }}"
+          event="${{ github.event_name }}"
+          ref="${{ github.ref }}"
+          merged="${{ github.event.pull_request.merged }}"
+          head="${{ github.event.pull_request.head.ref }}"
+          base="${{ github.event.pull_request.base.ref }}"
+          
+          echo "Event: $event"
+          echo "Ref: $ref"
+          echo "Merged: $merged"
+          echo "Head: $head"
+          echo "Base: $base"
+          
+          action="none"
+          version=""
+          branch=""
+          
+          if [ "$event" = "pull_request" ] && [ "$merged" = "true" ]; then
+            # PR was merged
+            if [[ "$head" == release/* ]] && [ "$base" = "main" ]; then
+              action="release-tag"
+              version=$(echo "$head" | sed 's|release/||')
+              branch="$head"
+            elif [[ "$head" == hotfix/* ]] && [ "$base" = "main" ]; then
+              action="hotfix-tag"
+              branch="$head"
+            elif [ "$base" = "develop" ]; then
+              action="none"  # Feature merged to develop
+              branch="$head"
+            fi
+          elif [ "$event" = "push" ]; then
+            if [[ "$ref" == refs/heads/main ]]; then
+              action="sync-develop"
+              branch="main"
+            elif [[ "$ref" == refs/heads/develop ]]; then
+              action="sync-features"
+              branch="develop"
+            fi
+          fi
+          
+          echo "action=$action" >> $GITHUB_OUTPUT
+          echo "branch=$branch" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
+          
+          echo "Detected action: $action"
+          echo "Detected branch: $branch"
+          echo "Detected version: $version"
+
+  execute:
+    needs: detect
+    if: needs.detect.outputs.action != 'none'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Execute GitFlow action (mock)
+        run: |
+          action="${{ needs.detect.outputs.action }}"
+          version="${{ needs.detect.outputs.version }}"
+          
+          echo "Would execute: $action"
+          
+          case "$action" in
+            release-tag)
+              echo "Would create tag v$version and GitHub release"
+              ;;
+            hotfix-tag)
+              echo "Would create patch tag and GitHub release"
+              ;;
+            sync-develop)
+              echo "Would sync develop with main"
+              ;;
+            sync-features)
+              echo "Would sync feature branches with develop"
+              ;;
+          esac
