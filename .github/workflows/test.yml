@@ -1,0 +1,36 @@
+name: Test GitFlow
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_case:
+        description: 'Test case ID (e.g., GF-D-001)'
+        required: true
+        type: string
+  pull_request:
+    branches: [main, develop]
+    types: [closed]
+  push:
+    branches: [main, develop, 'release/**', 'hotfix/**']
+
+jobs:
+  gitflow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Run GitFlow
+        id: gitflow
+        uses: beyond-scale-group/bsg-claude-plugins/github-actions/gitflow@main
+        with:
+          main-branch: main
+          develop-branch: develop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Check result
+        run: |
+          echo "Action: ${{ steps.gitflow.outputs.action }}"
+          echo "Branch: ${{ steps.gitflow.outputs.branch }}"
